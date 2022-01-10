@@ -28,13 +28,14 @@ def nmf_twophase(data, W, H):
     #     rel_residual = the relative Frobenius residual that compares the final W*H with the original data
     #
 
-    data = np.maximum(data, np.zeros([n,m]))
-
     # define global variables
     global n, m; [n, m] = data.shape
     global k; k = H.shape[0]
     global maxiter; maxiter = 200
     global tol; tol = 1e-6
+    global rho; rho = 1e-3
+
+    data = np.maximum(data, np.zeros([n,m]))
 
     elapse_start_phase1 = process_time()
     # Phase 1
@@ -42,7 +43,6 @@ def nmf_twophase(data, W, H):
     elapse_stop_phase1 = process_time()
     time_phase1 = elapse_stop_phase1 - elapse_start_phase1
 
-    rho = 1e-3
     W = np.max(W, rho)
     H = np.max(H, rho)
 

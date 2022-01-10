@@ -6,10 +6,11 @@ from nmf_twophase import maxiter, tol, n, m, k
 
 def nmf_alt_lsq_as(Y, W, H):
 
-    grad_W = ((W @ H) - Y) @ H.T
-    grad_H = H.T @ ((W @ H) - Y)
+    # grad_W = ((W @ H) - Y) @ H.T
+    # grad_H = W.T @ ((W @ H) - Y)
 
     flag = 0
+    # iter = 0
 
     for iter in range(maxiter):
 
@@ -17,21 +18,23 @@ def nmf_alt_lsq_as(Y, W, H):
         H = get_it(Y, W)
 
         # normalize
-        W = normalize(W, axis = 1)
-        H = normalize(H, axis = 2)
+        W = normalize(W, axis = 0)
+        H = normalize(H, axis = 1)
 
         #update gradients
-        grad_W = ((W @ H) - Y) @ H.T
-        grad_H = H.T @ ((W @ H) - Y)
+        # grad_W = ((W @ H) - Y) @ H.T
+        # grad_H = W.T @ ((W @ H) - Y)
 
         # checking for ??
         # sigma ??
-        if (iter > 1 & all(W > 0) & all(H > 0)) | iter == 50:
+        if ( (iter > 1 and np.sum(W > 0) == n*k) and (np.sum(H > 0) == k*m) or iter == 50 ):
 
             flag = flag + 1
+
             if flag == 2:
                 break;
         else:
+
             flag = 0
 
     return [W, H]
@@ -50,18 +53,29 @@ def get_it(b, A):
     #     X = a numpy array, either W or H
     #
 
-    R = np.linalg.cholesky(A.T @ A)
-    D = np.linalg.solve((A.T @ b), R.T)
-    X = np.zeros(k, m)
-    temp = np.zeros(k, 1)
-    seq = np.r_[:m]
+    # SPD check: if eigenvalues are negative or imaginary, we initialize matrix differently
+    AAT = A.T @ A
+    if any(np.isreal(eigvals(AAT))) or any(eigvals(AAT) <= 0) :
+
+        new_vals = np.random.randint(low = 1, high = 100, size = AAT.shape[0])
+        q,_ = qr(AAT)
+        AAT = q.T @ np.diag(new_vals) @ q
+        AAT = np.maximum(AAT, rho)
+
+    r = b.shape[1]
+    R = cholesky(AAT)
+    D = solve(R.T, (A.T @ b))
+    X = np.zeros((k, r)); 
+    # initialize x to be random, nonnegative vector
+    temp = np.random.rand(k, 1)
+    seq = [i for i in range(r)]
 
     # finds the NMF for d = R*x, one column of X at a time
     temp = lsqnoneg(R, D[:, seq[0]], temp)
-    X[:, seq[0]] = temp
-    for i in range(1, m):
+    X[:, seq[0]] = temp.reshape((3,))
+    for i in range(1, r):
         temp = lsqnoneg(R, D[:, seq[i]], temp)
-        X[:, seq[i]] = temp
+        X[:, seq[i]] = temp.reshape((3,))
     
     # return W or H 
     return X
@@ -87,29 +101,37 @@ def lsqnoneg(C, d, x):
     #     z = a numpy array, determined in the run of this function
     #
 
-    Z = x <= tol; P = x > tol
-    wz = np.zeros(k, 1); z = np.zeros(k, 1); z[P] = np.linalg.solve(C[:,P], d)
+    d = d.reshape((k,1))
 
-    while 1:
-        while any(z[P] <= 0):
-            iter = iter + 1
-            Q = (z <= 0 & P)
-            alpha = np.min(x[Q]/(x[Q] - z[Q]))
-            x = x + alpha @ (z - x)
-            Z = ( (np.abs(x) < tol & P) | Z)
-            P = x > tol
-            z = np.zeros(k, 1)
-            z[P] = np.linalg.solve(C[:,P], d)
+    Z = x <= tol; indx_Z = Z.tolist(); Z = [elem[0] for elem in indx_Z]
+    P = x > tol; indx_P = P.tolist(); P = [elem[0] for elem in indx_P]
+    wz = np.zeros((k, 1)); 
+    z = np.zeros((k, 1)); g, _, _, _ = lstsq(C[:,P], d, rcond = None); z[P] = g;
+        
+    for outiter in range(20):
+        for inneriter in range(10):
+            
+            indx = z <= 0; indx = [elem[0] for elem in indx]; Q = indx and P
+
+            if x[Q].size == 0:
+                alpha = rho
+            else:
+                alpha = np.min(x[Q]/(x[Q] - z[Q] + rho))
                 
-        x = Z; w = C.T @ (d - C @ x)
+            x = x + alpha*(z - x)
+            indx = np.abs(x) < tol; indx = [elem[0] for elem in indx]; Z = (indx and P) or Z
+            P = x > tol; indx = P.tolist(); P = [elem[0] for elem in indx]
+            z = np.zeros((k, 1)); g, _, _, _ = lstsq(C[:,P], d, rcond = None); z[P] = g
 
-        if not (any(Z) & any(w[Z] > tol)):
-            break
+        x = np.array(z); w = C.T @ (d - C @ x)
+        indx = w[Z] > tol; indx = [elem[0] for elem in indx]
 
-        z = np.zeros(k, 1); wz[P] = -inf; wz[Z] = w[Z];
-        t = wz.argmax[1]
-        P[t] = True; Z[t] = False;
-
-        z[P] = np.linalg.solve(d, C[:,P])
+        z = np.zeros((k, 1)); 
+        wz[P] = -inf; 
+        if (np.sum(Z) >  0):
+            wz[Z] = w[Z]
+        
+        t = np.argmax(wz); P[t] = True; Z[t] = False;
+        g, _, _, _ = lstsq(C[:,P], d, rcond = None); z[P] = g
 
     return z
